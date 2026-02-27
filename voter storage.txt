@@ -1,0 +1,35 @@
+import oracledb
+
+# Database credentials
+username = "voting_schema"
+password = "voting123"
+dsn = "localhost:1521/XEPDB1"
+
+try:
+    # Connect to Oracle
+    connection = oracledb.connect(
+        user=username,
+        password=password,
+        dsn=dsn
+    )
+    print("✅ Connected to Oracle Database")
+
+    cursor = connection.cursor()
+
+    # Fetch data
+    cursor.execute("SELECT * FROM v_voterid_stored_data")
+
+    rows = cursor.fetchall()
+
+    for row in rows:
+        print(row)
+
+except oracledb.Error as e:
+    print("❌ Connection Error:", e)
+
+finally:
+    if 'cursor' in locals():
+        cursor.close()
+    if 'connection' in locals():
+        connection.close()
+

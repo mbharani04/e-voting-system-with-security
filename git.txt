@@ -1,0 +1,7 @@
+
+github connection steps
+1.click profile --> repo
+2.click new -->type the Repository name
+3.add readme
+4.create repo
+
