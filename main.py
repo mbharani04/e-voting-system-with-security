@@ -1,15 +1,12 @@
-
 import customtkinter as ctk
 import tkinter.messagebox as messagebox
 import oracledb
 import qrcode
 from PIL import Image
 import os
-
-# ================= DATABASE CONFIG =================
-DB_USER = "voting_schema"
-DB_PASS = "voting123"
-DSN = "localhost:1521/XEPDB1"
+import properties
+import access
+import qrGeneratorService
 
 ctk.set_appearance_mode("DARK")      
 ctk.set_default_color_theme("green")
@@ -27,14 +24,6 @@ class App(ctk.CTk):
         
         self.login_page()
 
-    def get_connection(self):
-        try:
-            connection = oracledb.connect(user=DB_USER, password=DB_PASS, dsn=DSN)
-            return connection
-        except oracledb.Error as e:
-            messagebox.showerror("Database Error", f"Cannot connect: {str(e)}")
-            return None
-              
     def login_page(self):
         self.login_frame = ctk.CTkFrame(self)
         self.login_frame.place(relx=0.5, rely=0.5, anchor="center")
@@ -63,23 +52,24 @@ class App(ctk.CTk):
         if not username or not password:
             messagebox.showerror("Error", "All fields are required")
             return
+        connection,cursor = access.dbUtils.get_connection(self)
+        cursor.execute(properties.get_user, {
+            "uname": username,
+            "pwd": password
+        })
 
-        connection = self.get_connection()
-        if connection:
-            try:
-                cursor = connection.cursor()
-                cursor.execute("""
-                    SELECT user_name FROM v_user_detail 
-                    WHERE user_name = :uname AND password = :pwd
-                """, {"uname": username, "pwd": password})
+        result = cursor.fetchone()
 
-                if cursor.fetchone():
-                    self.login_frame.destroy()
-                    v_voter_status(self) # Correct way to switch classes
-                else:
-                    messagebox.showerror("Login Failed", "Invalid Username or Password")
-            finally:
-                connection.close()
+        if result:
+            cursor.execute(properties.update_user_lastlogin, {"uname": username})
+            connection.commit()
+            # messagebox.showinfo("Success", "Login Successful")
+            # self.voter_status_page()
+            v_voter_status(self) # Correct way to switch classes
+        else:
+            messagebox.showerror("Login Failed", "Invalid Username or Password")
+
+        access.dbUtils.close_connection(self)
 
 # ================= VOTER STATUS PAGE CLASS =================
 class v_voter_status:  
@@ -123,43 +113,38 @@ class v_voter_status:
         self.Gqr_btn.configure(state="disabled")
 
     def user_search(self):
-        voter_id = self.voterid_Entry.get().strip().upper()
-        if not voter_id:
-            messagebox.showerror("Error", "Please enter a Voter ID")
+        
+        self.voter_id = self.voterid_Entry.get().strip().upper()
+        if not self.voter_id:
+            messagebox.showerror("Error", "Enter Voter ID")
             return
-
-        connection = self.parent.get_connection()
-        if connection:
-            try:
-                cursor = connection.cursor()
-                cursor.execute("""
-                    SELECT voter_name, booth_name, pincode
-                    FROM v_voterid_prestored_data
-                    WHERE UPPER(voter_id) = :vid
-                """, {"vid": voter_id})
-
-                result = cursor.fetchone()
-                if result:
-                    self.result_label.configure(text=f"NAME: {result[0]}\nBOOTH: {result[1]}\nSTATUS: ELIGIBLE", text_color="#2ECC71")
-                    self.Gqr_btn.configure(state="normal")
-                else:
-                    self.result_label.configure(text="Voter Not Found", text_color="#E74C3C")
-                    self.Gqr_btn.configure(state="disabled")
-            finally:
-                connection.close()
+        else:
+            connection,cursor = access.dbUtils.get_connection(self)
+            cursor.execute(properties.get_voter_details, {"voterId": self.voter_id
+        })
+        result = cursor.fetchone()
+        print(result)
+        if result:
+            print("there is result")
+            if result[3] == 'Y':
+                print("value is Y")
+                self.result_label.configure(text="Already Polled", text_color="#E74C3C")
+                self.Gqr_btn.configure(state="disabled")
+            else:
+                print("go a head")
+                self.result_label.configure(text=f"NAME: {result[1]}\nBooth: {result[2]}\nSTATUS: ELIGIBLE", text_color="#2ECC71")
+                self.Gqr_btn.configure(state="normal")    
+        else:
+            print("no result")
+            self.result_label.configure(text="Voter Not Found", text_color="#E74C3C")
+            self.Gqr_btn.configure(state="disabled")
 
     def generate_qr(self):
         voter_id = self.voterid_Entry.get().strip().upper()
-        os.makedirs("qr_codes", exist_ok=True)
-        file_path = f"qr_codes/{voter_id}.png"
-
-        qr = qrcode.make(voter_id)
-        qr.save(file_path)
-
+        file_path = qrGeneratorService.qrGeneratorService.generate_qr(self,voter_id)
         img = ctk.CTkImage(Image.open(file_path), size=(200, 200))
         self.qr_label.configure(image=img, text="")
         self.qr_label.image = img 
-        messagebox.showinfo("Success", f"QR Saved to {file_path}")
 
     def back_to_login(self):
         self.status_frame.destroy()
@@ -168,3 +153,4 @@ class v_voter_status:
 if __name__ == "__main__":
     app = App()
     app.mainloop()
+

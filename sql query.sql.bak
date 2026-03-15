@@ -104,5 +104,3 @@ CREATE TABLE v_admin_detail (
 );
 
 INSERT INTO v_admin_detail (user_name, password, last_login) VALUES ('admin_1', 'admin@123', SYSTIMESTAMP);
-
-COMMIT;

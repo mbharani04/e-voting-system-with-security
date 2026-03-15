@@ -2,6 +2,8 @@ import customtkinter as ctk
 import tkinter as tk
 import tkinter.messagebox as messagebox
 import oracledb
+import properties
+import access
 
 # ================= DATABASE CONFIG =================
 DB_USER = "voting_schema"
@@ -63,58 +65,27 @@ class App(ctk.CTk):
         username = self.usernameEntry.get().strip()
         password = self.passwordEntry.get().strip()
 
-        
         if not username or not password:
             messagebox.showerror("Error", "All fields are required")
             return
+        connection,cursor = access.dbUtils.get_connection(self)
 
-        try:
-            connection = oracledb.connect(
-                user=DB_USER,
-                password=DB_PASS,
-                dsn=DSN
-            )
+        cursor.execute(str(properties.get_user), {
+            "uname": username,
+            "pwd": password
+        })
 
-            cursor = connection.cursor()
+        result = cursor.fetchone()
 
-            cursor.execute("""
-                SELECT user_name
-                FROM v_user_detail
-                WHERE user_name = :uname
-                  AND password = :pwd
-            """, {
-                "uname": username,
-                "pwd": password
-            })
+        if result:
+            cursor.execute(properties.update_user_lastlogin, {"uname": username})
+            connection.commit()
+            # messagebox.showinfo("Success", "Login Successful")
+            self.voter_status_page()
+        else:
+            messagebox.showerror("Login Failed", "Invalid Username or Password")
 
-            result = cursor.fetchone()
-
-            if result:
-                cursor.execute("""
-                    UPDATE v_user_detail
-                    SET last_login = SYSTIMESTAMP
-                    WHERE user_name = :uname
-                """, {"uname": username})
-
-                connection.commit()
-
-                messagebox.showinfo("Success", "Login Successful")
-                self.voter_status_page()
-            else:
-                messagebox.showerror("Login Failed", "Invalid Username or Password")
-
-        except oracledb.Error as e:
-            error_obj, = e.args
-            messagebox.showerror(
-                "Database Error",
-                f"Oracle Error {error_obj.code}\n{error_obj.message}"
-            )
-
-        finally:
-            if 'cursor' in locals():
-                cursor.close()
-            if 'connection' in locals():
-                connection.close()
+        access.dbUtils.close_connection(self)
 
 
         # ============= VOTER STATUS PAGE =====================
@@ -154,30 +125,44 @@ class App(ctk.CTk):
         self.qr_label = ctk.CTkLabel(self.status_frame,text="QR Code will be displayed here",width=300,height=200)
         self.qr_label.grid(row=4, column=0, columnspan=2, pady=15)
 
-        self.qr_button =ctk.CTkButton(self.qr_frame,text="Generate QR Code",command=self.generate_qr)
+        # self.qr_button =ctk.CTkButton(self.qr_frame,text="Generate QR Code",command=self.generate_qr)
+        self.qr_button = ctk.CTkButton(self.status_frame, text="Generate QR Code", command=self.generate_qr)
         self.qr_button.grid(row=5, column=1, pady=20)
         
     def user_search(self):
-        selected_id = self.voterid_entry.get()
-
+        selected_id = self.voterid_Entry.get()        
         
         if not selected_id:
             messagebox.showerror("Error", "Enter Voter ID")
             return
-
-        if selected_id in self.voter_ids:
-            status = "ELIGIBLE"
-     
         else:
-            status = "NOT ELIGIBLE"
+            connection,cursor = access.dbUtils.get_connection(self)
+            cursor.execute(properties.get_voter_details, {
+            "voterId": selected_id.upper()
+        })
+        
+        result = cursor.fetchone()
+
+        if result:
+            status = 'Eligible'
+            voterId = result[0]
+            voterName = result[1]
+            self.qr_button.grid()
+        else:
+            status = 'Not Eligible'
+            voterName = ''
+            self.qr_button.grid_remove()
 
         self.result_label.configure(
-            text=f"Voter ID : {selected_id}\n"
-                 f"Status   : {status}"
+            text =  f"Voter ID : {selected_id}\n"
+                    f"Status   : {status}\n"
+                    f"Voter Name: {voterName}"
         )
+
     def generate_qr(self):
+        
         self.qr_label.configure(text="QR CODE GENERATED\n(Voter Verification)")
-        messagebox.showinfo("QR Code", "QR Code generated successfully")
+        # messagebox.showinfo("QR Code", "QR Code generated successfully")
      
 
     def back_to_login(self):
